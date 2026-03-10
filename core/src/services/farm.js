@@ -973,11 +973,14 @@ function getCurrentPhase(phases, debug, landLabel) {
     return phases[0];
 }
 
+// 防偷触发阈值（秒）：成熟倒计时 ≤ 该值时，施有机肥提前收获
+const ANTI_THEFT_THRESHOLD_SEC = 180;
+
 function analyzeLands(lands) {
     const result = {
         harvestable: [], needWater: [], needWeed: [], needBug: [],
         growing: [], empty: [], dead: [], unlockable: [], upgradable: [],
-        harvestableInfo: [],
+        harvestableInfo: [], antiTheft: [],
     };
 
     const nowSec = getServerTimeSec();
@@ -1051,6 +1054,16 @@ function analyzeLands(lands) {
         const hasBugs = (plant.insect_owners && plant.insect_owners.length > 0) || (insectTime > 0 && insectTime <= nowSec);
         if (hasBugs) {
             result.needBug.push(id);
+        }
+
+        // 防偷检测：距离成熟 ≤ ANTI_THEFT_THRESHOLD_SEC 秒
+        const maturePhase = plant.phases.find(p => p && toNum(p.phase) === PlantPhase.MATURE);
+        if (maturePhase) {
+            const matureBegin = toTimeSec(maturePhase.begin_time);
+            const matureInSec = matureBegin > nowSec ? (matureBegin - nowSec) : 0;
+            if (matureInSec > 0 && matureInSec <= ANTI_THEFT_THRESHOLD_SEC) {
+                result.antiTheft.push(id);
+            }
         }
 
         result.growing.push(id);
@@ -1255,9 +1268,55 @@ async function runFarmOperation(opType, options = {}) {
         }
     }
 
-    // 执行收获
+    // 防偷：对即将成熟的地块施有机肥后立即收获
     let harvestedLandIds = [];
     let harvestReply = null;
+    if ((opType === 'all' || opType === 'harvest') && isAutomationOn('farm_anti_theft') && status.antiTheft.length > 0) {
+        const antiTheftIds = status.antiTheft;
+        log('防偷', `检测到 ${antiTheftIds.length} 块地即将成熟（≤${ANTI_THEFT_THRESHOLD_SEC}s），施有机肥提前收获 (${antiTheftIds.join(',')})`, {
+            module: 'farm', event: '防偷', result: 'start', count: antiTheftIds.length,
+        });
+        try {
+            // 逐块施一次有机肥（使其立即成熟）
+            const fertCount = await fertilize(antiTheftIds, ORGANIC_FERTILIZER_ID);
+            if (fertCount > 0) {
+                recordOperation('fertilize', fertCount);
+                // 稍等 1 秒让服务端状态生效
+                await sleep(1000);
+                // 立即收获
+                const antiHarvestReply = await harvest(antiTheftIds);
+                log('防偷', `防偷收获完成 ${antiTheftIds.length} 块土地（施肥 ${fertCount} 次）`, {
+                    module: 'farm', event: '防偷', result: 'ok',
+                    count: antiTheftIds.length, fertCount,
+                });
+                actions.push(`防偷收获${antiTheftIds.length}`);
+                recordOperation('harvest', antiTheftIds.length);
+                networkEvents.emit('farmHarvested', {
+                    count: antiTheftIds.length,
+                    landIds: [...antiTheftIds],
+                    opType: 'anti_theft',
+                });
+                // 防偷收获后的地块不再进入普通收获，从 harvestable 中去除
+                const antiTheftSet = new Set(antiTheftIds);
+                status.harvestable = status.harvestable.filter(id => !antiTheftSet.has(id));
+                // 将防偷收获的地块加入后续种植候选（单季作物会变空地）
+                // resolveRemovableHarvestedLands 会通过 harvestReply 判断是否需要铲除
+                // 这里把 antiHarvestReply 挂到 harvestReply 上供后续使用
+                if (!harvestReply) harvestReply = antiHarvestReply;
+                harvestedLandIds.push(...antiTheftIds);
+            } else {
+                logWarn('防偷', '有机肥已耗尽，防偷施肥失败', {
+                    module: 'farm', event: '防偷', result: 'no_fertilizer',
+                });
+            }
+        } catch (e) {
+            logWarn('防偷', `防偷操作失败: ${e.message}`, {
+                module: 'farm', event: '防偷', result: 'error',
+            });
+        }
+    }
+
+    // 执行收获
     let postHarvest = null;
     if (opType === 'all' || opType === 'harvest') {
         if (status.harvestable.length > 0) {
@@ -1443,4 +1502,7 @@ module.exports = {
     buildLandMap,
     getDisplayLandContext,
     isOccupiedSlaveLand,
+    getOrganicFertilizerTargetsFromLands, // 手动施有机肥使用
+    fertilize, // 手动施有机肥使用
 };
+

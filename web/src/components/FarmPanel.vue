@@ -17,6 +17,7 @@ const { status, loading: statusLoading, realtimeConnected } = storeToRefs(status
 const { width } = useWindowSize()
 
 const operating = ref(false)
+const organicTimes = ref(0)
 const confirmVisible = ref(false)
 const confirmConfig = ref({
   title: '',
@@ -31,6 +32,19 @@ async function executeOperate() {
   operating.value = true
   try {
     await farmStore.operate(currentAccountId.value, confirmConfig.value.opType)
+  }
+  finally {
+    operating.value = false
+  }
+}
+
+async function handleFertilize() {
+  const times = Math.max(0, Math.floor(Number(organicTimes.value) || 0))
+  if (!currentAccountId.value || times <= 0)
+    return
+  operating.value = true
+  try {
+    await farmStore.fertilizeOrganic(currentAccountId.value, times)
   }
   finally {
     operating.value = false
@@ -239,7 +253,7 @@ onUnmounted(() => {
           <div class="i-carbon-grid text-xl" />
           土地详情
         </h3>
-        <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
           <button
             v-for="op in operations"
             :key="op.type"
@@ -251,6 +265,26 @@ onUnmounted(() => {
             <div :class="op.icon" />
             {{ op.label }}
           </button>
+          <!-- 手动施有机肥 -->
+          <div class="flex items-center gap-1.5">
+            <input
+              v-model.number="organicTimes"
+              type="number"
+              min="0"
+              step="1"
+              class="w-16 rounded border border-gray-300 bg-white px-2 py-2 text-center text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              placeholder="0"
+            >
+            <button
+              class="flex items-center justify-center gap-1.5 rounded px-3 py-2 text-sm text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              :class="organicTimes > 0 ? 'bg-lime-600 hover:bg-lime-700' : 'bg-gray-400 cursor-not-allowed'"
+              :disabled="operating || organicTimes <= 0"
+              @click="handleFertilize"
+            >
+              <div class="i-carbon-chemistry" />
+              施有机肥
+            </button>
+          </div>
         </div>
       </div>
 

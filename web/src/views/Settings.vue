@@ -100,6 +100,7 @@ const localSettings = ref({
     sell: false,
     friend: false,
     farm_push: false,
+    farm_anti_theft: true,
     land_upgrade: false,
     friend_steal: false,
     friend_steal_blacklist: [] as number[],
@@ -396,6 +397,7 @@ function syncLocalSettings() {
         sell: false,
         friend: false,
         farm_push: false,
+        farm_anti_theft: true,
         land_upgrade: false,
         friend_steal: false,
         friend_steal_blacklist: [] as number[],
@@ -427,6 +429,7 @@ function syncLocalSettings() {
         sell: false,
         friend: false,
         farm_push: false,
+        farm_anti_theft: true,
         land_upgrade: false,
         friend_steal: false,
         friend_steal_blacklist: [] as number[],
@@ -876,6 +879,7 @@ async function handleTestOffline() {
             <BaseSwitch v-model="localSettings.automation.farm_water" label="自动浇水" :disabled="farmDisabled" />
             <BaseSwitch v-model="localSettings.automation.farm_bug" label="自动除虫" :disabled="farmDisabled" />
             <BaseSwitch v-model="localSettings.automation.farm_weed" label="自动除草" :disabled="farmDisabled" />
+            <BaseSwitch v-model="localSettings.automation.farm_anti_theft" label="防偷菜" :disabled="farmDisabled" />
           </div>
 
           <div class="flex flex-wrap gap-4 rounded bg-blue-50 p-2 text-sm dark:bg-blue-900/20" :class="{ 'opacity-50 pointer-events-none': friendDisabled }">

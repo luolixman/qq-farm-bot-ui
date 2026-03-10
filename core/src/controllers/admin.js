@@ -453,6 +453,20 @@ function startAdminServer(dataProvider) {
         }
     });
 
+    // API: 手动施有机肥
+    app.post('/api/farm/fertilize', async (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            const times = Math.max(0, Number.parseInt((req.body || {}).times, 10) || 0);
+            if (times <= 0) return res.json({ ok: true, data: { count: 0 } });
+            const data = await provider.doOrganicFertilize(id, times);
+            res.json({ ok: true, data });
+        } catch (e) {
+            handleApiError(res, e);
+        }
+    });
+
     // API: 数据分析
     app.get('/api/analytics', async (req, res) => {
         try {

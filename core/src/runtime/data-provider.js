@@ -116,6 +116,7 @@ function createDataProvider(options) {
         },
 
         doFarmOp: (accountRef, opType) => callWorkerApi(resolveAccountRefId(accountRef), 'doFarmOp', opType),
+        doOrganicFertilize: (accountRef, times) => callWorkerApi(resolveAccountRefId(accountRef), 'doOrganicFertilize', times),
         doAnalytics: (accountRef, sortBy) => callWorkerApi(resolveAccountRefId(accountRef), 'getAnalytics', sortBy),
         saveSettings: async (accountRef, payload) => {
             const accountId = resolveAccountRefId(accountRef);
