@@ -1,4 +1,5 @@
 const process = require('node:process');
+const { CONFIG } = require('../config/config');
 /**
  * 运行时存储 - 自动化开关、种子偏好、账号管理
  */
@@ -107,6 +108,7 @@ const globalConfig = {
     offlineReminder: { ...DEFAULT_OFFLINE_REMINDER },
     qrLogin: { ...DEFAULT_QR_LOGIN },
     adminPasswordHash: '',
+    clientVersion: '',
 };
 
 function normalizeOfflineReminder(input) {
@@ -381,6 +383,11 @@ function loadGlobalConfig() {
             if (typeof data.adminPasswordHash === 'string') {
                 globalConfig.adminPasswordHash = data.adminPasswordHash;
             }
+            if (typeof data.clientVersion === 'string' && data.clientVersion.trim()) {
+                globalConfig.clientVersion = data.clientVersion.trim();
+                CONFIG.clientVersion = globalConfig.clientVersion;
+                CONFIG.device_info.client_version = globalConfig.clientVersion;
+            }
         }
     } catch (e) {
         console.error('加载配置失败:', e.message);
@@ -628,6 +635,19 @@ function setQrLoginConfig(cfg) {
     saveGlobalConfig();
     return getQrLoginConfig();
 }
+
+function getClientVersion() {
+    return String(globalConfig.clientVersion || CONFIG.clientVersion || '');
+}
+
+function setClientVersion(version) {
+    const v = String(version || '').trim();
+    globalConfig.clientVersion = v;
+    CONFIG.clientVersion = v;
+    CONFIG.device_info.client_version = v;
+    saveGlobalConfig();
+    return getClientVersion();
+}
 // ============ 账号管理 ============
 function loadAccounts() {
     ensureDataDir();
@@ -715,6 +735,8 @@ module.exports = {
     setOfflineReminder,
     getQrLoginConfig,
     setQrLoginConfig,
+    getClientVersion,
+    setClientVersion,
     getAccounts,
     addOrUpdateAccount,
     deleteAccount,

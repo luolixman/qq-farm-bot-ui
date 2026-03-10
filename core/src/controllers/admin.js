@@ -585,7 +585,23 @@ function startAdminServer(dataProvider) {
             const qrLogin = store.getQrLoginConfig
                 ? store.getQrLoginConfig()
                 : { apiDomain: 'q.qq.com' };
-            res.json({ ok: true, data: { intervals, strategy, preferredSeed, friendQuietHours, automation, ui, offlineReminder, qrLogin } });
+            const clientVersion = store.getClientVersion ? store.getClientVersion() : CONFIG.clientVersion;
+            res.json({ ok: true, data: { intervals, strategy, preferredSeed, friendQuietHours, automation, ui, offlineReminder, qrLogin, clientVersion } });
+        } catch (e) {
+            res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    // API: 保存客户端版本号
+    app.post('/api/settings/client-version', async (req, res) => {
+        try {
+            const body = (req.body && typeof req.body === 'object') ? req.body : {};
+            const version = String(body.clientVersion || '').trim();
+            if (!version) {
+                return res.status(400).json({ ok: false, error: '版本号不能为空' });
+            }
+            const data = store.setClientVersion ? store.setClientVersion(version) : version;
+            res.json({ ok: true, data: { clientVersion: data } });
         } catch (e) {
             res.status(500).json({ ok: false, error: e.message });
         }

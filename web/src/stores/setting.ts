@@ -68,6 +68,7 @@ export interface SettingsState {
   ui: UIConfig
   offlineReminder: OfflineConfig
   qrLogin: QrLoginConfig
+  clientVersion: string
 }
 
 export const useSettingStore = defineStore('setting', () => {
@@ -93,6 +94,7 @@ export const useSettingStore = defineStore('setting', () => {
     qrLogin: {
       apiDomain: 'q.qq.com',
     },
+    clientVersion: '',
   })
   const loading = ref(false)
 
@@ -128,6 +130,7 @@ export const useSettingStore = defineStore('setting', () => {
         settings.value.qrLogin = d.qrLogin || {
           apiDomain: 'q.qq.com',
         }
+        settings.value.clientVersion = String(d.clientVersion || '')
       }
     }
     finally {
@@ -208,5 +211,20 @@ export const useSettingStore = defineStore('setting', () => {
     }
   }
 
-  return { settings, loading, fetchSettings, saveSettings, saveOfflineConfig, saveQrLoginConfig, changeAdminPassword }
+  async function saveClientVersion(clientVersion: string) {
+    loading.value = true
+    try {
+      const { data } = await api.post('/api/settings/client-version', { clientVersion })
+      if (data && data.ok) {
+        settings.value.clientVersion = String(data.data?.clientVersion || clientVersion)
+        return { ok: true }
+      }
+      return { ok: false, error: '保存失败' }
+    }
+    finally {
+      loading.value = false
+    }
+  }
+
+  return { settings, loading, fetchSettings, saveSettings, saveOfflineConfig, saveQrLoginConfig, changeAdminPassword, saveClientVersion }
 })
