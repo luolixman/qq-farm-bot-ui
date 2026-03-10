@@ -193,12 +193,41 @@ function markIdleFriendProbeCooldown(friendGid, hadAction, nowMs = Date.now()) {
 async function getAllFriends() {
     const isQQ = CONFIG.platform === 'qq';
     if (isQQ) {
-        const syncReq = types.SyncAllRequest || types.SyncAllFriendsRequest;
-        const syncRep = types.SyncAllReply || types.SyncAllFriendsReply;
-        if (!syncReq || !syncRep) throw new Error('SyncAll 接口类型未加载');
-        const body = syncReq.encode(syncReq.create({ open_ids: [] })).finish();
-        const { body: replyBody } = await sendMsgAsync('gamepb.friendpb.FriendService', 'SyncAll', body);
-        return syncRep.decode(replyBody);
+        // const syncReq = types.SyncAllRequest || types.SyncAllFriendsRequest;
+        // const syncRep = types.SyncAllReply || types.SyncAllFriendsReply;
+        // if (!syncReq || !syncRep) throw new Error('SyncAll 接口类型未加载');
+        // const body = syncReq.encode(syncReq.create({ open_ids: [] })).finish();
+        // const { body: replyBody } = await sendMsgAsync('gamepb.friendpb.FriendService', 'SyncAll', body);
+        // return syncRep.decode(replyBody);
+        // QQ 平台暂时无法获取真实好友列表，使用最近访客列表代替
+        const { body: interactBody } = await sendMsgAsync('gamepb.interactpb.InteractService', 'InteractRecords',
+            types.InteractRecordsRequest.encode(types.InteractRecordsRequest.create({})).finish()
+        );
+        const interactReply = types.InteractRecordsReply.decode(interactBody);
+        const records = interactReply.records || [];
+
+        // 按 visitor_gid 去重，保留每人最新一条记录
+        const seen = new Map();
+        for (const r of records) {
+            const gid = toNum(r.visitor_gid);
+            if (!gid) continue;
+            if (!seen.has(gid)) seen.set(gid, r);
+        }
+
+        // 包装成 GameFriend 格式
+        const game_friends = [...seen.values()].map(r => ({
+            gid: r.visitor_gid,
+            open_id: '',
+            name: r.nick || `GID:${toNum(r.visitor_gid)}`,
+            avatar_url: r.avatar_url || '',
+            remark: '',
+            level: r.level || 0,
+            gold: 0,
+            tags: null,
+            plant: null,
+            authorized_status: 0,
+        }));
+        return { game_friends, application_count: 0 };
     }
 
     const body = types.GetAllFriendsRequest.encode(types.GetAllFriendsRequest.create({})).finish();
