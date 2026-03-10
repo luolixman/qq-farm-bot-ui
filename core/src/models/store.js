@@ -9,7 +9,7 @@ const { readTextFile, readJsonFile, writeJsonFileAtomic } = require('../services
 
 const STORE_FILE = getDataFile('store.json');
 const ACCOUNTS_FILE = getDataFile('accounts.json');
-const ALLOWED_PLANTING_STRATEGIES = ['preferred', 'level', 'max_exp', 'max_fert_exp', 'max_profit', 'max_fert_profit'];
+const ALLOWED_PLANTING_STRATEGIES = ['preferred', 'level', 'max_exp', 'max_fert_exp', 'max_profit', 'max_fert_profit', 'backpack'];
 const PUSHOO_CHANNELS = new Set([
     'webhook', 'qmsg', 'serverchan', 'pushplus', 'pushplushxtrip',
     'dingtalk', 'wecom', 'bark', 'gocqhttp', 'onebot', 'atri',

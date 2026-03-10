@@ -510,6 +510,7 @@ const plantingStrategyOptions = [
   { label: '最大普通肥经验/时', value: 'max_fert_exp' },
   { label: '最大净利润/时', value: 'max_profit' },
   { label: '最大普通肥净利润/时', value: 'max_fert_profit' },
+  { label: '优先背包种子', value: 'backpack' },
 ]
 
 const channelOptions = [
@@ -600,7 +601,7 @@ const strategyPreviewLabel = ref<string | null>(null)
 
 watchEffect(async () => {
   const strategy = localSettings.value.plantingStrategy
-  if (strategy === 'preferred') {
+  if (strategy === 'preferred' || strategy === 'backpack') {
     strategyPreviewLabel.value = null
     return
   }
@@ -794,8 +795,13 @@ async function handleSaveClientVersion() {
         <div class="p-4 space-y-3">
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             <BaseSelect v-model="localSettings.plantingStrategy" label="种植策略" :options="plantingStrategyOptions" />
-            <BaseSelect v-if="localSettings.plantingStrategy === 'preferred'" v-model="localSettings.preferredSeedId"
-              label="优先种植种子" :options="preferredSeedOptions" />
+            <BaseSelect
+              v-if="localSettings.plantingStrategy === 'preferred' || localSettings.plantingStrategy === 'backpack'"
+              v-model="localSettings.preferredSeedId"
+              label="优先种植种子"
+              :options="preferredSeedOptions"
+              :disabled="localSettings.plantingStrategy === 'backpack'"
+            />
             <!-- 预览区域：与 BaseSelect 同结构同样式，避免切换策略时布局跳动 -->
             <div v-else class="flex flex-col gap-1.5">
               <label class="text-sm text-gray-700 font-medium dark:text-gray-300">策略选种预览</label>
