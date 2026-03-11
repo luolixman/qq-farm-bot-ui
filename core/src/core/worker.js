@@ -677,6 +677,37 @@ async function handleApiCall(msg) {
             case 'doFarmOp':
                 result = await runFarmOperation(args[0], { automated: false }); // opType
                 break;
+            case 'doOrganicFertilize': {
+                const times = Math.max(0, Number.parseInt(args[0], 10) || 0);
+                if (times <= 0) { result = { count: 0 }; break; }
+                const { getAllLands: _getAllLands, getOrganicFertilizerTargetsFromLands, fertilize: _fertilize } = require('../services/farm');
+                const { sleep: _sleep, toNum: _toNum } = require('../utils/utils');
+                const landsReply = await _getAllLands();
+                const lands = Array.isArray(landsReply && landsReply.lands) ? landsReply.lands : [];
+                let targets = [];
+                if (typeof getOrganicFertilizerTargetsFromLands === 'function') {
+                    targets = getOrganicFertilizerTargetsFromLands(lands);
+                } else {
+                    for (const land of lands) {
+                        if (!land || !land.unlocked) continue;
+                        const id = _toNum(land.id);
+                        if (id && land.plant && land.plant.phases && land.plant.phases.length > 0) targets.push(id);
+                    }
+                }
+                if (targets.length === 0) { result = { count: 0, msg: '无可施肥地块' }; break; }
+                let total = 0;
+                for (let i = 0; i < times; i++) {
+                    const cnt = await _fertilize(targets, 1012);
+                    total += cnt;
+                    if (cnt < targets.length) break;
+                    if (i < times - 1) await _sleep(500);
+                }
+                log('施肥', `手动有机化肥：共施 ${total} 次（目标 ${targets.length} 块地，重复 ${times} 轮）`, {
+                    module: 'farm', event: '手动施肥', result: 'ok', total, targets: targets.length, rounds: times,
+                });
+                result = { count: total };
+                break;
+            }
             case 'getAnalytics': {
                 const { getPlantRankings } = require('../services/analytics');
                 result = getPlantRankings(args[0]); // sortBy

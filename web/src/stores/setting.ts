@@ -92,6 +92,7 @@ export interface SettingsState {
   offlineReminder: OfflineConfig
   qrLogin: QrLoginConfig
   runtimeClient: RuntimeClientConfig
+  clientVersion: string
 }
 
 export const useSettingStore = defineStore('setting', () => {
@@ -129,6 +130,7 @@ export const useSettingStore = defineStore('setting', () => {
         device_id: 'iPhone X<iPhone18,3>',
       },
     },
+    clientVersion: '',
   })
   const loading = ref(false)
 
@@ -176,6 +178,7 @@ export const useSettingStore = defineStore('setting', () => {
             device_id: 'iPhone X<iPhone18,3>',
           },
         }
+        settings.value.clientVersion = String(d.clientVersion || '')
       }
     }
     finally {
@@ -273,5 +276,20 @@ export const useSettingStore = defineStore('setting', () => {
     }
   }
 
-  return { settings, loading, fetchSettings, saveSettings, saveOfflineConfig, saveQrLoginConfig, saveRuntimeClientConfig, changeAdminPassword }
+  async function saveClientVersion(clientVersion: string) {
+    loading.value = true
+    try {
+      const { data } = await api.post('/api/settings/client-version', { clientVersion })
+      if (data && data.ok) {
+        settings.value.clientVersion = String(data.data?.clientVersion || clientVersion)
+        return { ok: true }
+      }
+      return { ok: false, error: '保存失败' }
+    }
+    finally {
+      loading.value = false
+    }
+  }
+
+  return { settings, loading, fetchSettings, saveSettings, saveOfflineConfig, saveQrLoginConfig, saveRuntimeClientConfig, changeAdminPassword, saveClientVersion }
 })

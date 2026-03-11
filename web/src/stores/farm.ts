@@ -58,5 +58,14 @@ export const useFarmStore = defineStore('farm', () => {
     await fetchLands(accountId)
   }
 
-  return { lands, summary, seeds, loading, fetchLands, fetchSeeds, operate }
+  async function fertilizeOrganic(accountId: string, times: number) {
+    if (!accountId || times <= 0)
+      return { count: 0 }
+    const { data } = await api.post('/api/farm/fertilize', { times }, {
+      headers: { 'x-account-id': accountId },
+    })
+    return data?.data || { count: 0 }
+  }
+
+  return { lands, summary, seeds, loading, fetchLands, fetchSeeds, operate, fertilizeOrganic }
 })

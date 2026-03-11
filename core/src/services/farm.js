@@ -13,6 +13,8 @@ const { getPlantRankings } = require('./analytics');
 const { createScheduler } = require('./scheduler');
 const { recordOperation } = require('./stats');
 const { getFarmOptimizer } = require('./rate-limiter');
+const { getBag, getBagItems } = require('./warehouse');
+
 
 // ============ 内部状态 ============
 let isCheckingFarm = false;
@@ -602,6 +604,36 @@ async function findBestSeed() {
     return available[0];
 }
 
+/**
+ * 从背包获取可用种子（排除 2x2 及以上大种子）
+ * 返回数组：[{ seedId, count, name, plantSize }, ...] 按数量降序
+ */
+async function findBackpackSeeds() {
+    const bagReply = await getBag();
+    const items = getBagItems(bagReply);
+    const seeds = [];
+    for (const item of items) {
+        const seedId = toNum(item && item.id);
+        if (seedId <= 0) continue;
+        const count = toNum(item && item.count);
+        if (count <= 0) continue;
+        const plantCfg = getPlantBySeedId(seedId);
+        if (!plantCfg) continue; // 不是种子
+        const plantSize = Math.max(1, toNum(plantCfg && plantCfg.size) || 1);
+        if (plantSize > 1) continue; // 排除 2x2 及以上
+        seeds.push({
+            seedId,
+            count,
+            name: getPlantNameBySeedId(seedId),
+            plantSize,
+        });
+    }
+    // 按数量降序，先用数量多的种子
+    seeds.sort((a, b) => b.count - a.count);
+    return seeds;
+}
+
+
 async function getAvailableSeeds() {
     const SEED_SHOP_ID = 2;
     const state = getUserState();
@@ -845,11 +877,60 @@ async function autoPlantEmptyLands(deadLandIds, emptyLandIds) {
         module: 'farm', event: 'plant_strategy', strategy
     });
 
-    // 2. 背包种子优先模式
+    // 2. 背包种子优先模式 (bag_priority)
     if (strategy === 'bag_priority') {
         const planted = await plantFromBagSeeds(landsToPlant);
         if (planted) return;
         // 背包种子用完或空地不足，继续检查是否需要切换策略
+    }
+
+    // ---- 背包策略：直接从背包读种子，跳过商店购买 (backpack) ----
+    if (strategy === 'backpack') {
+        let backpackSeeds;
+        try {
+            backpackSeeds = await findBackpackSeeds();
+        } catch (e) {
+            logWarn('背包', `查询背包种子失败: ${e.message}`);
+            return;
+        }
+        if (!backpackSeeds || backpackSeeds.length === 0) {
+            log('种植', '背包策略：背包中无可用种子（非2x2），跳过种植', {
+                module: 'farm', event: 'plant_seed', result: 'skip', reason: 'no_backpack_seeds',
+            });
+            return;
+        }
+
+        let remainingLands = [...landsToPlant];
+        let totalPlanted = [];
+
+        for (const seedEntry of backpackSeeds) {
+            if (remainingLands.length === 0) break;
+            const { seedId, count, name } = seedEntry;
+            log('种植', `背包策略：使用 ${name}(${seedId}) x${count} 种植`, {
+                module: 'farm', event: 'plant_seed', seedId, count,
+            });
+            try {
+                const { planted, plantedLandIds, occupiedLandIds } = await plantSeeds(seedId, remainingLands, { maxPlantCount: count });
+                if (planted > 0) {
+                    const occupiedCount = occupiedLandIds.length > 0 ? occupiedLandIds.length : planted;
+                    log('种植', `背包策略：已种 ${name} x${planted}，占用 ${occupiedCount} 块 (${occupiedLandIds.join(',')})`, {
+                        module: 'farm', event: 'plant_seed', result: 'ok',
+                        seedId, count: planted, occupiedCount,
+                    });
+                    totalPlanted.push(...plantedLandIds);
+                    // 从剩余土地中去掉已占用的
+                    const occupiedSet = new Set(occupiedLandIds);
+                    remainingLands = remainingLands.filter(id => !occupiedSet.has(id));
+                }
+            } catch (e) {
+                logWarn('种植', `背包策略：种植 ${name} 失败: ${e.message}`);
+            }
+        }
+
+        if (totalPlanted.length > 0) {
+            await runFertilizerByConfig(totalPlanted);
+        }
+        return;
     }
 
     // 3. 非背包优先模式，或背包种子已用完，从商店购买
@@ -1137,11 +1218,14 @@ function getCurrentPhase(phases, debug, landLabel) {
     return phases[0];
 }
 
+// 防偷触发阈值（秒）：成熟倒计时 ≤ 该值时，施有机肥提前收获
+const ANTI_THEFT_THRESHOLD_SEC = 180;
+
 function analyzeLands(lands) {
     const result = {
         harvestable: [], needWater: [], needWeed: [], needBug: [],
         growing: [], empty: [], dead: [], unlockable: [], upgradable: [],
-        harvestableInfo: [],
+        harvestableInfo: [], antiTheft: [],
     };
 
     const nowSec = getServerTimeSec();
@@ -1215,6 +1299,16 @@ function analyzeLands(lands) {
         const hasBugs = (plant.insect_owners && plant.insect_owners.length > 0) || (insectTime > 0 && insectTime <= nowSec);
         if (hasBugs) {
             result.needBug.push(id);
+        }
+
+        // 防偷检测：距离成熟 ≤ ANTI_THEFT_THRESHOLD_SEC 秒
+        const maturePhase = plant.phases.find(p => p && toNum(p.phase) === PlantPhase.MATURE);
+        if (maturePhase) {
+            const matureBegin = toTimeSec(maturePhase.begin_time);
+            const matureInSec = matureBegin > nowSec ? (matureBegin - nowSec) : 0;
+            if (matureInSec > 0 && matureInSec <= ANTI_THEFT_THRESHOLD_SEC) {
+                result.antiTheft.push(id);
+            }
         }
 
         result.growing.push(id);
@@ -1419,9 +1513,55 @@ async function runFarmOperation(opType, options = {}) {
         }
     }
 
-    // 执行收获
+    // 防偷：对即将成熟的地块施有机肥后立即收获
     let harvestedLandIds = [];
     let harvestReply = null;
+    if ((opType === 'all' || opType === 'harvest') && isAutomationOn('farm_anti_theft') && status.antiTheft.length > 0) {
+        const antiTheftIds = status.antiTheft;
+        log('防偷', `检测到 ${antiTheftIds.length} 块地即将成熟（≤${ANTI_THEFT_THRESHOLD_SEC}s），施有机肥提前收获 (${antiTheftIds.join(',')})`, {
+            module: 'farm', event: '防偷', result: 'start', count: antiTheftIds.length,
+        });
+        try {
+            // 逐块施一次有机肥（使其立即成熟）
+            const fertCount = await fertilize(antiTheftIds, ORGANIC_FERTILIZER_ID);
+            if (fertCount > 0) {
+                recordOperation('fertilize', fertCount);
+                // 稍等 1 秒让服务端状态生效
+                await sleep(1000);
+                // 立即收获
+                const antiHarvestReply = await harvest(antiTheftIds);
+                log('防偷', `防偷收获完成 ${antiTheftIds.length} 块土地（施肥 ${fertCount} 次）`, {
+                    module: 'farm', event: '防偷', result: 'ok',
+                    count: antiTheftIds.length, fertCount,
+                });
+                actions.push(`防偷收获${antiTheftIds.length}`);
+                recordOperation('harvest', antiTheftIds.length);
+                networkEvents.emit('farmHarvested', {
+                    count: antiTheftIds.length,
+                    landIds: [...antiTheftIds],
+                    opType: 'anti_theft',
+                });
+                // 防偷收获后的地块不再进入普通收获，从 harvestable 中去除
+                const antiTheftSet = new Set(antiTheftIds);
+                status.harvestable = status.harvestable.filter(id => !antiTheftSet.has(id));
+                // 将防偷收获的地块加入后续种植候选（单季作物会变空地）
+                // resolveRemovableHarvestedLands 会通过 harvestReply 判断是否需要铲除
+                // 这里把 antiHarvestReply 挂到 harvestReply 上供后续使用
+                if (!harvestReply) harvestReply = antiHarvestReply;
+                harvestedLandIds.push(...antiTheftIds);
+            } else {
+                logWarn('防偷', '有机肥已耗尽，防偷施肥失败', {
+                    module: 'farm', event: '防偷', result: 'no_fertilizer',
+                });
+            }
+        } catch (e) {
+            logWarn('防偷', `防偷操作失败: ${e.message}`, {
+                module: 'farm', event: '防偷', result: 'error',
+            });
+        }
+    }
+
+    // 执行收获
     let postHarvest = null;
     if (opType === 'all' || opType === 'harvest') {
         if (status.harvestable.length > 0) {
@@ -1607,4 +1747,7 @@ module.exports = {
     buildLandMap,
     getDisplayLandContext,
     isOccupiedSlaveLand,
+    getOrganicFertilizerTargetsFromLands, // 手动施有机肥使用
+    fertilize, // 手动施有机肥使用
 };
+

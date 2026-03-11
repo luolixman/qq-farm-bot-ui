@@ -28,6 +28,7 @@ const offlineSaving = ref(false)
 const offlineTesting = ref(false)
 const qrSaving = ref(false)
 const runtimeClientSaving = ref(false)
+const clientVersionSaving = ref(false)
 
 const token = computed(() => {
   return localStorage.getItem('admin_token') || '未登录'
@@ -116,6 +117,7 @@ const localSettings = ref({
     sell: false,
     friend: false,
     farm_push: false,
+    farm_anti_theft: true,
     land_upgrade: false,
     friend_steal: false,
     friend_steal_blacklist: [] as number[],
@@ -367,6 +369,8 @@ function clearStealFilter() {
   onlyShowUnselectedStealCrops.value = false
   stealBlacklistSearch.value = ''
 }
+
+const localClientVersion = ref('')
 const localOffline = ref({
   channel: 'webhook',
   reloginUrlMode: 'none',
@@ -425,6 +429,7 @@ function syncLocalSettings() {
         sell: false,
         friend: false,
         farm_push: false,
+        farm_anti_theft: true,
         land_upgrade: false,
         friend_steal: false,
         friend_steal_blacklist: [] as number[],
@@ -456,6 +461,7 @@ function syncLocalSettings() {
         sell: false,
         friend: false,
         farm_push: false,
+        farm_anti_theft: true,
         land_upgrade: false,
         friend_steal: false,
         friend_steal_blacklist: [] as number[],
@@ -498,6 +504,7 @@ function syncLocalSettings() {
     if (settings.value.runtimeClient) {
       localRuntimeClient.value = JSON.parse(JSON.stringify(settings.value.runtimeClient))
     }
+    localClientVersion.value = String(settings.value.clientVersion || '')
   }
 }
 
@@ -536,6 +543,7 @@ const plantingStrategyOptions = [
   { label: '最大普通肥经验/时', value: 'max_fert_exp' },
   { label: '最大净利润/时', value: 'max_profit' },
   { label: '最大普通肥净利润/时', value: 'max_fert_profit' },
+  { label: '优先背包种子', value: 'backpack' },
 ]
 
 const channelOptions = [
@@ -738,7 +746,7 @@ const strategyPreviewLabel = ref<string | null>(null)
 
 watchEffect(async () => {
   const strategy = localSettings.value.plantingStrategy
-  if (strategy === 'preferred' || strategy === 'bag_priority') {
+  if (strategy === 'preferred' || strategy === 'bag_priority' || strategy === 'backpack') {
     strategyPreviewLabel.value = null
     return
   }
@@ -900,6 +908,27 @@ async function handleTestOffline() {
     offlineTesting.value = false
   }
 }
+
+async function handleSaveClientVersion() {
+  const v = localClientVersion.value.trim()
+  if (!v) {
+    showAlert('版本号不能为空', 'danger')
+    return
+  }
+  clientVersionSaving.value = true
+  try {
+    const res = await settingStore.saveClientVersion(v)
+    if (res.ok) {
+      showAlert('客户端版本号已保存')
+    }
+    else {
+      showAlert(`保存失败: ${res.error || '未知错误'}`, 'danger')
+    }
+  }
+  finally {
+    clientVersionSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -928,23 +957,19 @@ async function handleTestOffline() {
         <!-- Strategy Content -->
         <div class="p-4 space-y-3">
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <BaseSelect v-model="localSettings.plantingStrategy" label="种植策略" :options="plantingStrategyOptions" />
             <BaseSelect
-              v-model="localSettings.plantingStrategy"
-              label="种植策略"
-              :options="plantingStrategyOptions"
-            />
-            <BaseSelect
-              v-if="localSettings.plantingStrategy === 'preferred'"
+              v-if="localSettings.plantingStrategy === 'preferred' || localSettings.plantingStrategy === 'backpack'"
               v-model="localSettings.preferredSeedId"
               label="优先种植种子"
               :options="preferredSeedOptions"
+              :disabled="localSettings.plantingStrategy === 'backpack'"
             />
             <!-- 预览区域：与 BaseSelect 同结构同样式，避免切换策略时布局跳动 -->
             <div v-else-if="localSettings.plantingStrategy !== 'bag_priority'" class="flex flex-col gap-1.5">
               <label class="text-sm text-gray-700 font-medium dark:text-gray-300">策略选种预览</label>
               <div
-                class="w-full flex items-center justify-between border border-gray-200 rounded-lg bg-gray-50 px-3 py-2 text-gray-500 dark:border-gray-600 dark:bg-gray-800/50 dark:text-gray-400"
-              >
+                class="w-full flex items-center justify-between border border-gray-200 rounded-lg bg-gray-50 px-3 py-2 text-gray-500 dark:border-gray-600 dark:bg-gray-800/50 dark:text-gray-400">
                 <span class="truncate">{{ strategyPreviewLabel ?? '加载中...' }}</span>
                 <div class="i-carbon-chevron-down shrink-0 text-lg text-gray-400" />
               </div>
@@ -1038,55 +1063,24 @@ async function handleTestOffline() {
           </div>
 
           <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <BaseInput
-              v-model.number="localSettings.intervals.farmMin"
-              label="农场巡查最小 (秒)"
-              type="number"
-              min="1"
-              max="86400"
-            />
-            <BaseInput
-              v-model.number="localSettings.intervals.farmMax"
-              label="农场巡查最大 (秒)"
-              type="number"
-              min="1"
-              max="86400"
-            />
-            <BaseInput
-              v-model.number="localSettings.intervals.friendMin"
-              label="好友巡查最小 (秒)"
-              type="number"
-              min="1"
-              max="86400"
-            />
-            <BaseInput
-              v-model.number="localSettings.intervals.friendMax"
-              label="好友巡查最大 (秒)"
-              type="number"
-              min="1"
-              max="86400"
-            />
+            <BaseInput v-model.number="localSettings.intervals.farmMin" label="农场巡查最小 (秒)" type="number" min="1"
+              max="86400" />
+            <BaseInput v-model.number="localSettings.intervals.farmMax" label="农场巡查最大 (秒)" type="number" min="1"
+              max="86400" />
+            <BaseInput v-model.number="localSettings.intervals.friendMin" label="好友巡查最小 (秒)" type="number" min="1"
+              max="86400" />
+            <BaseInput v-model.number="localSettings.intervals.friendMax" label="好友巡查最大 (秒)" type="number" min="1"
+              max="86400" />
           </div>
 
           <div class="mt-4 flex flex-wrap items-center gap-4 border-t pt-3 dark:border-gray-700">
-            <BaseSwitch
-              v-model="localSettings.friendQuietHours.enabled"
-              label="启用静默时段"
-            />
+            <BaseSwitch v-model="localSettings.friendQuietHours.enabled" label="启用静默时段" />
             <div class="flex items-center gap-2">
-              <BaseInput
-                v-model="localSettings.friendQuietHours.start"
-                type="time"
-                class="w-24"
-                :disabled="!localSettings.friendQuietHours.enabled"
-              />
+              <BaseInput v-model="localSettings.friendQuietHours.start" type="time" class="w-24"
+                :disabled="!localSettings.friendQuietHours.enabled" />
               <span class="text-gray-500">-</span>
-              <BaseInput
-                v-model="localSettings.friendQuietHours.end"
-                type="time"
-                class="w-24"
-                :disabled="!localSettings.friendQuietHours.enabled"
-              />
+              <BaseInput v-model="localSettings.friendQuietHours.end" type="time" class="w-24"
+                :disabled="!localSettings.friendQuietHours.enabled" />
             </div>
           </div>
         </div>
@@ -1121,24 +1115,30 @@ async function handleTestOffline() {
           </div>
 
           <!-- Sub-controls -->
-          <div class="flex flex-wrap gap-4 rounded bg-emerald-50 p-2 text-sm dark:bg-emerald-900/20" :class="{ 'opacity-50 pointer-events-none': farmDisabled }">
+          <div class="flex flex-wrap gap-4 rounded bg-emerald-50 p-2 text-sm dark:bg-emerald-900/20"
+            :class="{ 'opacity-50 pointer-events-none': farmDisabled }">
             <BaseSwitch v-model="localSettings.automation.farm_water" label="自动浇水" :disabled="farmDisabled" />
             <BaseSwitch v-model="localSettings.automation.farm_bug" label="自动除虫" :disabled="farmDisabled" />
             <BaseSwitch v-model="localSettings.automation.farm_weed" label="自动除草" :disabled="farmDisabled" />
+            <BaseSwitch v-model="localSettings.automation.farm_anti_theft" label="防偷菜" :disabled="farmDisabled" />
           </div>
 
-          <div class="flex flex-wrap gap-4 rounded bg-blue-50 p-2 text-sm dark:bg-blue-900/20" :class="{ 'opacity-50 pointer-events-none': friendDisabled }">
+          <div class="flex flex-wrap gap-4 rounded bg-blue-50 p-2 text-sm dark:bg-blue-900/20"
+            :class="{ 'opacity-50 pointer-events-none': friendDisabled }">
             <BaseSwitch v-model="localSettings.automation.friend_steal" label="自动偷菜" :disabled="friendDisabled" />
             <BaseSwitch v-model="localSettings.automation.friend_help" label="自动帮忙" :disabled="friendDisabled" />
             <BaseSwitch v-model="localSettings.automation.friend_bad" label="自动捣乱" :disabled="friendDisabled" />
-            <BaseSwitch v-model="localSettings.automation.friend_help_exp_limit" label="经验上限停止帮忙" :disabled="friendDisabled" />
+            <BaseSwitch v-model="localSettings.automation.friend_help_exp_limit" label="经验上限停止帮忙"
+              :disabled="friendDisabled" />
           </div>
           <!-- Steal Crop Blacklist + Fertilizer -->
           <div class="space-y-3">
-            <div class="border border-blue-200 rounded-lg bg-blue-50/70 p-3 text-gray-800 shadow-sm dark:border-blue-500/50 dark:bg-[#17243a] dark:text-white">
+            <div
+              class="border border-blue-200 rounded-lg bg-blue-50/70 p-3 text-gray-800 shadow-sm dark:border-blue-500/50 dark:bg-[#17243a] dark:text-white">
               <div class="mb-1 flex items-center justify-between gap-3">
                 <div class="min-w-0 flex items-center gap-2">
-                  <div class="h-9 w-9 flex items-center justify-center rounded-lg border border-blue-300/70 bg-white/90 dark:border-blue-500/40 dark:bg-blue-500/20">
+                  <div
+                    class="h-9 w-9 flex items-center justify-center rounded-lg border border-blue-300/70 bg-white/90 dark:border-blue-500/40 dark:bg-blue-500/20">
                     <div class="i-carbon-filter text-xl text-blue-700 dark:text-blue-200" />
                   </div>
                   <div class="min-w-0">
@@ -1146,7 +1146,8 @@ async function handleTestOffline() {
                       <div class="truncate text-base font-semibold">
                         排除作物
                       </div>
-                      <div class="rounded-full border border-blue-300 bg-white/95 px-2 py-0.5 text-xs text-blue-700 shadow-sm dark:border-blue-300/60 dark:bg-blue-500/15 dark:text-blue-100">
+                      <div
+                        class="rounded-full border border-blue-300 bg-white/95 px-2 py-0.5 text-xs text-blue-700 shadow-sm dark:border-blue-300/60 dark:bg-blue-500/15 dark:text-blue-100">
                         <span class="font-semibold">{{ stealBlacklistCount }} / {{ stealCropOptions.length }}</span>
                       </div>
                     </div>
@@ -1155,16 +1156,11 @@ async function handleTestOffline() {
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
+                <button type="button"
                   class="h-9 w-9 flex items-center justify-center rounded-lg border border-blue-300/70 bg-white/90 text-blue-700 transition hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-500/20 dark:text-blue-100 dark:hover:bg-blue-500/30"
-                  :aria-expanded="!stealBlacklistCollapsed"
-                  @click="stealBlacklistCollapsed = !stealBlacklistCollapsed"
-                >
-                  <div
-                    class="i-carbon-chevron-down text-lg transition-transform"
-                    :class="stealBlacklistCollapsed ? '' : 'rotate-180'"
-                  />
+                  :aria-expanded="!stealBlacklistCollapsed" @click="stealBlacklistCollapsed = !stealBlacklistCollapsed">
+                  <div class="i-carbon-chevron-down text-lg transition-transform"
+                    :class="stealBlacklistCollapsed ? '' : 'rotate-180'" />
                 </button>
               </div>
 
@@ -1176,97 +1172,73 @@ async function handleTestOffline() {
                     支持按作物名或 seedid 搜索
                   </div>
                   <div class="flex items-center justify-end gap-2">
-                    <BaseButton
-                      variant="outline"
-                      size="sm"
+                    <BaseButton variant="outline" size="sm"
                       class="!border-blue-300 !text-blue-700 hover:!bg-blue-100 dark:!border-blue-400/70 dark:!text-blue-100 dark:hover:!bg-blue-500/20"
-                      :disabled="stealBlacklistCount >= stealCropOptions.length"
-                      @click="filterUnselectedStealCrops"
-                    >
+                      :disabled="stealBlacklistCount >= stealCropOptions.length" @click="filterUnselectedStealCrops">
                       排除筛选
                     </BaseButton>
-                    <BaseButton
-                      variant="ghost"
-                      size="sm"
+                    <BaseButton variant="ghost" size="sm"
                       class="!text-blue-700 hover:!bg-blue-100 dark:!text-blue-100 dark:hover:!bg-blue-500/20"
-                      :disabled="!stealBlacklistSearch && !onlyShowUnselectedStealCrops"
-                      @click="clearStealFilter"
-                    >
+                      :disabled="!stealBlacklistSearch && !onlyShowUnselectedStealCrops" @click="clearStealFilter">
                       清空
                     </BaseButton>
                   </div>
                 </div>
 
                 <div class="relative mb-2">
-                  <div class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base text-blue-500/70 dark:text-blue-200/70">
+                  <div
+                    class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base text-blue-500/70 dark:text-blue-200/70">
                     <div class="i-carbon-search" />
                   </div>
-                  <input
-                    v-model="stealBlacklistSearch"
-                    type="text"
-                    placeholder="搜索作物名或 Seed ID"
-                    class="w-full border border-blue-200 rounded-lg bg-white py-2 pl-9 pr-3 text-sm text-gray-700 outline-none placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-300/20 dark:border-blue-400/40 dark:bg-[#1c2b45] dark:text-blue-50 dark:placeholder:text-blue-200/50 dark:focus:border-blue-300/70"
-                  >
+                  <input v-model="stealBlacklistSearch" type="text" placeholder="搜索作物名或 Seed ID"
+                    class="w-full border border-blue-200 rounded-lg bg-white py-2 pl-9 pr-3 text-sm text-gray-700 outline-none placeholder:text-gray-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-300/20 dark:border-blue-400/40 dark:bg-[#1c2b45] dark:text-blue-50 dark:placeholder:text-blue-200/50 dark:focus:border-blue-300/70">
                 </div>
 
-              <div v-if="stealCropOptions.length > 0">
-                <div
-                  v-if="filteredStealCropOptions.length > 0"
-                  class="max-h-56 grid grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3"
-                >
-                  <button
-                    v-for="crop in filteredStealCropOptions"
-                    :key="crop.plantId"
-                    type="button"
-                    class="flex w-full cursor-pointer items-center gap-2 rounded border bg-white px-2 py-1.5 text-left text-xs text-gray-700 transition dark:bg-gray-800 dark:text-gray-300"
-                    :class="isCropBlacklisted(crop.plantId)
-                      ? 'border-blue-500 ring-1 ring-blue-300/70 dark:border-blue-400 dark:ring-blue-700/50'
-                      : 'border-gray-200 hover:border-blue-300 dark:border-gray-700 dark:hover:border-blue-700'"
-                    :aria-pressed="isCropBlacklisted(crop.plantId)"
-                    @click="toggleStealBlacklistCrop(crop.plantId)"
-                  >
-                    <img
-                      v-if="crop.image"
-                      :src="crop.image"
-                      :alt="crop.name"
-                      class="h-[1.8rem] w-[1.8rem] rounded object-cover"
-                    >
-                    <div v-else class="h-[1.8rem] w-[1.8rem] flex items-center justify-center rounded bg-gray-100 text-[10px] text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-                      <div class="i-carbon-image" />
-                    </div>
-                    <div class="min-w-0 flex-1">
-                      <div class="truncate text-xs font-medium">{{ crop.name }}</div>
-                      <div class="text-[11px] text-gray-500 dark:text-gray-400">
-                        Seed ID: {{ crop.seedId === null ? '?' : crop.seedId }}   Lv.{{ crop.level === null ? '?' : crop.level }}
+                <div v-if="stealCropOptions.length > 0">
+                  <div v-if="filteredStealCropOptions.length > 0"
+                    class="max-h-56 grid grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+                    <button v-for="crop in filteredStealCropOptions" :key="crop.plantId" type="button"
+                      class="flex w-full cursor-pointer items-center gap-2 rounded border bg-white px-2 py-1.5 text-left text-xs text-gray-700 transition dark:bg-gray-800 dark:text-gray-300"
+                      :class="isCropBlacklisted(crop.plantId)
+                        ? 'border-blue-500 ring-1 ring-blue-300/70 dark:border-blue-400 dark:ring-blue-700/50'
+                        : 'border-gray-200 hover:border-blue-300 dark:border-gray-700 dark:hover:border-blue-700'"
+                      :aria-pressed="isCropBlacklisted(crop.plantId)" @click="toggleStealBlacklistCrop(crop.plantId)">
+                      <img v-if="crop.image" :src="crop.image" :alt="crop.name"
+                        class="h-[1.8rem] w-[1.8rem] rounded object-cover">
+                      <div v-else
+                        class="h-[1.8rem] w-[1.8rem] flex items-center justify-center rounded bg-gray-100 text-[10px] text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+                        <div class="i-carbon-image" />
                       </div>
-                    </div>
-                  </button>
+                      <div class="min-w-0 flex-1">
+                        <div class="truncate text-xs font-medium">{{ crop.name }}</div>
+                        <div class="text-[11px] text-gray-500 dark:text-gray-400">
+                          Seed ID: {{ crop.seedId === null ? '?' : crop.seedId }} Lv.{{ crop.level === null ? '?' :
+                            crop.level }}
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                  <div v-else
+                    class="rounded bg-white px-2 py-2 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                    未找到匹配作物，请调整关键词后重试。
+                  </div>
                 </div>
-                <div v-else class="rounded bg-white px-2 py-2 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                  未找到匹配作物，请调整关键词后重试。
+                <div v-else
+                  class="rounded bg-white px-2 py-2 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                  暂无可选作物，请先等待种子列表加载完成。
                 </div>
               </div>
-              <div v-else class="rounded bg-white px-2 py-2 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                暂无可选作物，请先等待种子列表加载完成。
-              </div>
             </div>
-            </div>
-            <div class="border border-amber-200 rounded bg-amber-50/60 p-3 dark:border-amber-800/60 dark:bg-amber-900/10">
+            <div
+              class="border border-amber-200 rounded bg-amber-50/60 p-3 dark:border-amber-800/60 dark:bg-amber-900/10">
               <div class="mb-2 text-sm text-amber-800 font-medium dark:text-amber-300">
                 施肥范围
               </div>
               <div class="grid grid-cols-2 gap-2 md:grid-cols-4">
-                <label
-                  v-for="option in fertilizerLandTypeOptions"
-                  :key="option.value"
-                  class="flex cursor-pointer items-center gap-1.5 rounded bg-white px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                >
-                  <input
-                    v-model="localSettings.automation.fertilizer_land_types"
-                    :value="option.value"
-                    type="checkbox"
-                    class="h-3.5 w-3.5"
-                  >
+                <label v-for="option in fertilizerLandTypeOptions" :key="option.value"
+                  class="flex cursor-pointer items-center gap-1.5 rounded bg-white px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                  <input v-model="localSettings.automation.fertilizer_land_types" :value="option.value" type="checkbox"
+                    class="h-3.5 w-3.5">
                   <span>{{ option.label }}</span>
                 </label>
               </div>
@@ -1275,35 +1247,23 @@ async function handleTestOffline() {
               </p>
             </div>
             <div class="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-              <BaseSelect
-                v-model="localSettings.automation.fertilizer"
-                label="施肥策略"
-                class="w-full"
-                :options="fertilizerOptions"
-              />
-              <BaseSwitch
-                v-model="localSettings.automation.fertilizer_multi_season"
-                label="多季补肥"
-                class="md:mb-2"
-              />
+              <BaseSelect v-model="localSettings.automation.fertilizer" label="施肥策略" class="w-full"
+                :options="fertilizerOptions" />
+              <BaseSwitch v-model="localSettings.automation.fertilizer_multi_season" label="多季补肥" class="md:mb-2" />
             </div>
           </div>
         </div>
 
         <!-- Save Button -->
         <div class="mt-auto flex justify-end border-t bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900/50">
-          <BaseButton
-            variant="primary"
-            size="sm"
-            :loading="saving"
-            @click="saveAccountSettings"
-          >
+          <BaseButton variant="primary" size="sm" :loading="saving" @click="saveAccountSettings">
             保存策略与自动控制
           </BaseButton>
         </div>
       </div>
 
-      <div v-else class="card flex flex-col items-center justify-center gap-4 rounded-lg bg-white p-12 text-center shadow dark:bg-gray-800">
+      <div v-else
+        class="card flex flex-col items-center justify-center gap-4 rounded-lg bg-white p-12 text-center shadow dark:bg-gray-800">
         <div class="rounded-full bg-gray-50 p-4 dark:bg-gray-700/50">
           <div class="i-carbon-settings-adjust text-4xl text-gray-400 dark:text-gray-500" />
         </div>
@@ -1319,8 +1279,29 @@ async function handleTestOffline() {
 
       <!-- Card 2: System Settings (Password & Offline) -->
       <div class="card h-full flex flex-col rounded-lg bg-white shadow dark:bg-gray-800">
-        <!-- Password Header -->
+        <!-- Client Version Header -->
         <div class="border-b bg-gray-50/50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
+          <h3 class="flex items-center gap-2 text-base text-gray-900 font-bold dark:text-gray-100">
+            <div class="i-carbon-version" />
+            客户端版本号
+          </h3>
+        </div>
+
+        <!-- Client Version Content -->
+        <div class="p-4 space-y-3">
+          <BaseInput v-model="localClientVersion" type="text" placeholder="例如: 1.7.0.5_20260306" />
+          <div class="flex items-center justify-between pt-1">
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              修改后立即生效
+            </p>
+            <BaseButton variant="primary" size="sm" :loading="clientVersionSaving" @click="handleSaveClientVersion">
+              保存版本号
+            </BaseButton>
+          </div>
+        </div>
+
+        <!-- Password Header -->
+        <div class="border-b border-t bg-gray-50/50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
           <h3 class="flex items-center gap-2 text-base text-gray-900 font-bold dark:text-gray-100">
             <div class="i-carbon-password" />
             管理密码
@@ -1330,36 +1311,16 @@ async function handleTestOffline() {
         <!-- Password Content -->
         <div class="p-4 space-y-3">
           <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <BaseInput
-              v-model="passwordForm.old"
-              label="当前密码"
-              type="password"
-              placeholder="当前管理密码"
-            />
-            <BaseInput
-              v-model="passwordForm.new"
-              label="新密码"
-              type="password"
-              placeholder="至少 4 位"
-            />
-            <BaseInput
-              v-model="passwordForm.confirm"
-              label="确认新密码"
-              type="password"
-              placeholder="再次输入新密码"
-            />
+            <BaseInput v-model="passwordForm.old" label="当前密码" type="password" placeholder="当前管理密码" />
+            <BaseInput v-model="passwordForm.new" label="新密码" type="password" placeholder="至少 4 位" />
+            <BaseInput v-model="passwordForm.confirm" label="确认新密码" type="password" placeholder="再次输入新密码" />
           </div>
 
           <div class="flex items-center justify-between pt-1">
             <p class="text-xs text-gray-500">
               建议修改默认密码 (admin)
             </p>
-            <BaseButton
-              variant="primary"
-              size="sm"
-              :loading="passwordSaving"
-              @click="handleChangePassword"
-            >
+            <BaseButton variant="primary" size="sm" :loading="passwordSaving" @click="handleChangePassword">
               修改管理密码
             </BaseButton>
           </div>
@@ -1452,22 +1413,12 @@ async function handleTestOffline() {
 
         <!-- QR Login Content -->
         <div class="p-4 space-y-3">
-          <BaseInput
-            v-model="localQrLogin.apiDomain"
-            label="二维码接口域名"
-            type="text"
-            placeholder="q.qq.com"
-          />
+          <BaseInput v-model="localQrLogin.apiDomain" label="二维码接口域名" type="text" placeholder="q.qq.com" />
           <p class="text-xs text-gray-500 dark:text-gray-400">
             仅影响后端调用二维码相关接口的域名，前端仍使用 /api/qr/create 与 /api/qr/check。
           </p>
           <div class="flex justify-end">
-            <BaseButton
-              variant="primary"
-              size="sm"
-              :loading="qrSaving"
-              @click="handleSaveQrLogin"
-            >
+            <BaseButton variant="primary" size="sm" :loading="qrSaving" @click="handleSaveQrLogin">
               保存二维码接口设置
             </BaseButton>
           </div>
@@ -1486,82 +1437,36 @@ async function handleTestOffline() {
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
                 <span class="text-sm text-gray-700 font-medium dark:text-gray-300">推送渠道</span>
-                <BaseButton
-                  variant="text"
-                  size="sm"
-                  :disabled="!currentChannelDocUrl"
-                  @click="openChannelDocs"
-                >
+                <BaseButton variant="text" size="sm" :disabled="!currentChannelDocUrl" @click="openChannelDocs">
                   官网
                 </BaseButton>
               </div>
-              <BaseSelect
-                v-model="localOffline.channel"
-                :options="channelOptions"
-              />
+              <BaseSelect v-model="localOffline.channel" :options="channelOptions" />
             </div>
-            <BaseSelect
-              v-model="localOffline.reloginUrlMode"
-              label="重登录链接"
-              :options="reloginUrlModeOptions"
-            />
+            <BaseSelect v-model="localOffline.reloginUrlMode" label="重登录链接" :options="reloginUrlModeOptions" />
           </div>
 
-          <BaseInput
-            v-model="localOffline.endpoint"
-            label="接口地址"
-            type="text"
-            :disabled="localOffline.channel !== 'webhook' && localOffline.channel !== 'custom_request'"
-          />
+          <BaseInput v-model="localOffline.endpoint" label="接口地址" type="text"
+            :disabled="localOffline.channel !== 'webhook' && localOffline.channel !== 'custom_request'" />
 
-          <BaseInput
-            v-model="localOffline.token"
-            label="Token"
-            type="text"
-            placeholder="接收端 token"
-          />
+          <BaseInput v-model="localOffline.token" label="Token" type="text" placeholder="接收端 token" />
 
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <BaseInput
-              v-model="localOffline.title"
-              label="标题"
-              type="text"
-              placeholder="提醒标题"
-            />
+            <BaseInput v-model="localOffline.title" label="标题" type="text" placeholder="提醒标题" />
             <div class="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-              <BaseInput
-                v-model.number="localOffline.offlineDeleteSec"
-                label="离线删除账号 (秒)"
-                type="number"
-                min="1"
-                placeholder="默认 1"
-              />
-              <BaseSwitch
-                v-model="localOffline.offlineDeleteEnabled"
-                label="启用离线删号"
-                class="md:mb-2"
-              />
+              <BaseInput v-model.number="localOffline.offlineDeleteSec" label="离线删除账号 (秒)" type="number" min="1"
+                placeholder="默认 1" />
+              <BaseSwitch v-model="localOffline.offlineDeleteEnabled" label="启用离线删号" class="md:mb-2" />
             </div>
           </div>
 
-          <BaseInput
-            v-model="localOffline.msg"
-            label="内容"
-            type="text"
-            placeholder="提醒内容"
-          />
+          <BaseInput v-model="localOffline.msg" label="内容" type="text" placeholder="提醒内容" />
 
           <template v-if="localOffline.channel === 'custom_request'">
-            <BaseTextarea
-              v-model="localOffline.custom_headers"
-              label="Headers (严格 JSON)"
-              placeholder="例如: {&quot;Content-Type&quot;: &quot;application/json&quot;, &quot;Authorization&quot;: &quot;Bearer TOKEN&quot;}"
-            />
-            <BaseTextarea
-              v-model="localOffline.custom_body"
-              label="Body (严格 JSON, 占位符支持 {{title}}（标题） {{content}}（内容）)"
-              placeholder="例如: { &quot;title&quot;: &quot;{{title}}&quot;, &quot;message&quot;: &quot;{{content}}&quot; }"
-            />
+            <BaseTextarea v-model="localOffline.custom_headers" label="Headers (严格 JSON)"
+              placeholder="例如: {&quot;Content-Type&quot;: &quot;application/json&quot;, &quot;Authorization&quot;: &quot;Bearer TOKEN&quot;}" />
+            <BaseTextarea v-model="localOffline.custom_body" label="Body (严格 JSON, 占位符支持 {{title}}（标题） {{content}}（内容）)"
+              placeholder="例如: { &quot;title&quot;: &quot;{{title}}&quot;, &quot;message&quot;: &quot;{{content}}&quot; }" />
           </template>
 
           <!-- Save Offline Button -->
@@ -1621,16 +1526,9 @@ async function handleTestOffline() {
       </div>
     </div>
 
-    <ConfirmModal
-      :show="modalVisible"
-      :title="modalConfig.title"
-      :message="modalConfig.message"
-      :type="modalConfig.type"
-      :is-alert="modalConfig.isAlert"
-      confirm-text="知道了"
-      @confirm="modalVisible = false"
-      @cancel="modalVisible = false"
-    />
+    <ConfirmModal :show="modalVisible" :title="modalConfig.title" :message="modalConfig.message"
+      :type="modalConfig.type" :is-alert="modalConfig.isAlert" confirm-text="知道了" @confirm="modalVisible = false"
+      @cancel="modalVisible = false" />
   </div>
 </template>
 

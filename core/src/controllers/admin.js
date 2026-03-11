@@ -547,6 +547,20 @@ function startAdminServer(dataProvider) {
         }
     });
 
+    // API: 手动施有机肥
+    app.post('/api/farm/fertilize', async (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            const times = Math.max(0, Number.parseInt((req.body || {}).times, 10) || 0);
+            if (times <= 0) return res.json({ ok: true, data: { count: 0 } });
+            const data = await provider.doOrganicFertilize(id, times);
+            res.json({ ok: true, data });
+        } catch (e) {
+            handleApiError(res, e);
+        }
+    });
+
     // API: 数据分析
     app.get('/api/analytics', async (req, res) => {
         try {
@@ -687,7 +701,23 @@ function startAdminServer(dataProvider) {
             const runtimeClient = store.getRuntimeClientConfig
                 ? store.getRuntimeClientConfig()
                 : null;
-            res.json({ ok: true, data: { intervals, strategy, preferredSeed, bagSeedPriority, friendQuietHours, automation, ui, offlineReminder, qrLogin, runtimeClient } });
+            const clientVersion = store.getClientVersion ? store.getClientVersion() : CONFIG.clientVersion;
+            res.json({ ok: true, data: { intervals, strategy, preferredSeed, bagSeedPriority, friendQuietHours, automation, ui, offlineReminder, qrLogin, runtimeClient, clientVersion } });
+        } catch (e) {
+            res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    // API: 保存客户端版本号
+    app.post('/api/settings/client-version', async (req, res) => {
+        try {
+            const body = (req.body && typeof req.body === 'object') ? req.body : {};
+            const version = String(body.clientVersion || '').trim();
+            if (!version) {
+                return res.status(400).json({ ok: false, error: '版本号不能为空' });
+            }
+            const data = store.setClientVersion ? store.setClientVersion(version) : version;
+            res.json({ ok: true, data: { clientVersion: data } });
         } catch (e) {
             res.status(500).json({ ok: false, error: e.message });
         }

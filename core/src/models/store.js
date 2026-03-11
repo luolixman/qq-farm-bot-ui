@@ -1,4 +1,5 @@
 const process = require('node:process');
+const { CONFIG } = require('../config/config');
 /**
  * 运行时存储 - 自动化开关、种子偏好、账号管理
  */
@@ -9,7 +10,7 @@ const { readTextFile, readJsonFile, writeJsonFileAtomic } = require('../services
 
 const STORE_FILE = getDataFile('store.json');
 const ACCOUNTS_FILE = getDataFile('accounts.json');
-const ALLOWED_PLANTING_STRATEGIES = ['preferred', 'level', 'max_exp', 'max_fert_exp', 'max_profit', 'max_fert_profit', 'bag_priority'];
+const ALLOWED_PLANTING_STRATEGIES = ['preferred', 'level', 'max_exp', 'max_fert_exp', 'max_profit', 'max_fert_profit', 'bag_priority', 'backpack'];
 const PUSHOO_CHANNELS = new Set([
     'webhook', 'qmsg', 'serverchan', 'pushplus', 'pushplushxtrip',
     'dingtalk', 'wecom', 'bark', 'gocqhttp', 'onebot', 'atri',
@@ -59,6 +60,7 @@ const DEFAULT_ACCOUNT_CONFIG = {
         farm_weed: true, // 自动除草
         farm_bug: true, // 自动除虫
         farm_push: true,   // 收到 LandsNotify 推送时是否立即触发巡田
+        farm_anti_theft: true, // 防偷菜（即将成熟时施有机肥提前收获）
         land_upgrade: true, // 是否自动升级土地
         friend: true,       // 好友互动总开关
         friend_help_exp_limit: true, // 帮忙经验达上限后自动停止帮忙
@@ -122,6 +124,7 @@ const globalConfig = {
     qrLogin: { ...DEFAULT_QR_LOGIN },
     runtimeClient: { ...DEFAULT_RUNTIME_CLIENT, device_info: { ...DEFAULT_RUNTIME_CLIENT.device_info } },
     adminPasswordHash: '',
+    clientVersion: '',
 };
 
 function normalizeOfflineReminder(input) {
@@ -571,6 +574,11 @@ function loadGlobalConfig() {
             if (typeof data.adminPasswordHash === 'string') {
                 globalConfig.adminPasswordHash = data.adminPasswordHash;
             }
+            if (typeof data.clientVersion === 'string' && data.clientVersion.trim()) {
+                globalConfig.clientVersion = data.clientVersion.trim();
+                CONFIG.clientVersion = globalConfig.clientVersion;
+                CONFIG.device_info.client_version = globalConfig.clientVersion;
+            }
         }
     } catch (e) {
         console.error('加载配置失败:', e.message);
@@ -864,6 +872,19 @@ function setQrLoginConfig(cfg) {
     saveGlobalConfig();
     return getQrLoginConfig();
 }
+
+function getClientVersion() {
+    return String(globalConfig.clientVersion || CONFIG.clientVersion || '');
+}
+
+function setClientVersion(version) {
+    const v = String(version || '').trim();
+    globalConfig.clientVersion = v;
+    CONFIG.clientVersion = v;
+    CONFIG.device_info.client_version = v;
+    saveGlobalConfig();
+    return getClientVersion();
+}
 // ============ 账号管理 ============
 function loadAccounts() {
     ensureDataDir();
@@ -958,6 +979,8 @@ module.exports = {
     setQrLoginConfig,
     getRuntimeClientConfig,
     setRuntimeClientConfig,
+    getClientVersion,
+    setClientVersion,
     getAccounts,
     addOrUpdateAccount,
     deleteAccount,
