@@ -1286,7 +1286,6 @@ async function handleSaveClientVersion() {
                     :class="stealBlacklistCollapsed ? '' : 'rotate-180'"
                   />
                 </button>
-                </button>
               </div>
 
               <div v-if="!stealBlacklistCollapsed">
